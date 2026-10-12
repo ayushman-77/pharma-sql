@@ -1,0 +1,662 @@
+# Pharma text-to-SQL benchmark: 80 questions with hand-verified gold SQL.
+#   easy (20)          single table or one join, simple filters
+#   medium (25)        multi-join, GROUP BY, relative time, ranking
+#   hard (20)          market share, growth, quota attainment, window functions, anti-joins
+#   unanswerable (15)  the data mart cannot answer; the correct behaviour is to abstain
+#
+# Gold queries return the minimal columns that answer the question. A prediction may return
+# extra columns. `alt_sql` lists equally valid gold results where formatting is legitimately
+# ambiguous (e.g. one full-name column vs first/last name).
+# Questions are disjoint from the few-shot bank (config/verified_queries.yaml).
+
+# ------------------------------------------------------------------------------- easy
+- id: E01
+  difficulty: easy
+  question: How many HCPs are in the database?
+  sql: SELECT COUNT(*) FROM dim_hcp;
+- id: E02
+  difficulty: easy
+  question: How many sales territories are there in the West region?
+  sql: |
+    SELECT COUNT(*) FROM dim_territory t JOIN dim_region g ON g.region_id = t.region_id
+    WHERE g.region_name = 'West';
+- id: E03
+  difficulty: easy
+  question: List our own brands and their therapeutic areas.
+  sql: SELECT brand_name, therapeutic_area FROM dim_product WHERE is_own_brand = 1;
+- id: E04
+  difficulty: easy
+  question: What is the WAC price of Oncorex?
+  sql: SELECT wac_price FROM dim_product WHERE brand_name = 'Oncorex';
+- id: E05
+  difficulty: easy
+  question: How many oncologists do we have in our HCP universe?
+  sql: SELECT COUNT(*) FROM dim_hcp WHERE specialty = 'Oncology';
+- id: E06
+  difficulty: easy
+  question: What was total TRx for Glucovia in 2025?
+  sql: |
+    SELECT SUM(r.trx) FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+    WHERE p.brand_name = 'Glucovia' AND r.month BETWEEN '2025-01-01' AND '2025-12-01';
+- id: E07
+  difficulty: easy
+  question: What were total net sales across all our brands last quarter?
+  sql: |
+    SELECT SUM(s.net_sales) FROM fact_sales s JOIN dim_calendar c ON c.month = s.month
+    WHERE c.year_quarter = '2026-Q3';
+- id: E08
+  difficulty: easy
+  question: How many calls did reps make in September 2026?
+  sql: SELECT COUNT(*) FROM fact_call WHERE call_date BETWEEN '2026-09-01' AND '2026-09-30';
+- id: E09
+  difficulty: easy
+  question: Which payers are in the Medicare channel?
+  sql: SELECT payer_name FROM dim_payer WHERE channel = 'Medicare';
+- id: E10
+  difficulty: easy
+  question: When did Oncorex launch?
+  sql: SELECT launch_date FROM dim_product WHERE brand_name = 'Oncorex';
+- id: E11
+  difficulty: easy
+  question: How many reps are on the Specialty team?
+  sql: SELECT COUNT(*) FROM dim_rep WHERE sales_team = 'Specialty';
+- id: E12
+  difficulty: easy
+  question: What were gross sales of Pulmova in 2024?
+  sql: |
+    SELECT SUM(s.gross_sales) FROM fact_sales s JOIN dim_product p ON p.product_id = s.product_id
+    WHERE p.brand_name = 'Pulmova' AND s.month BETWEEN '2024-01-01' AND '2024-12-01';
+- id: E13
+  difficulty: easy
+  question: How many HCPs are in decile 10?
+  sql: SELECT COUNT(*) FROM dim_hcp WHERE decile = 10;
+- id: E14
+  difficulty: easy
+  question: List the territories in the Midwest region.
+  sql: |
+    SELECT t.territory_name FROM dim_territory t JOIN dim_region g ON g.region_id = t.region_id
+    WHERE g.region_name = 'Midwest';
+- id: E15
+  difficulty: easy
+  question: How many HCPs are on the call plan?
+  sql: SELECT COUNT(*) FROM dim_hcp WHERE is_target = 1;
+- id: E16
+  difficulty: easy
+  question: How many new prescriptions has Neurolin had so far this year?
+  sql: |
+    SELECT SUM(r.nrx) FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+    WHERE p.brand_name = 'Neurolin' AND r.month BETWEEN '2026-01-01' AND '2026-09-01';
+- id: E17
+  difficulty: easy
+  question: Which competitor brands are in the Diabetes market?
+  sql: SELECT brand_name FROM dim_product WHERE therapeutic_area = 'Diabetes' AND is_own_brand = 0;
+- id: E18
+  difficulty: easy
+  question: How many virtual calls were made in 2025?
+  sql: |
+    SELECT COUNT(*) FROM fact_call
+    WHERE channel = 'Virtual' AND call_date BETWEEN '2025-01-01' AND '2025-12-31';
+- id: E19
+  difficulty: easy
+  question: How many units of Cardiozen were shipped in 2026-Q2?
+  sql: |
+    SELECT SUM(s.units) FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    JOIN dim_calendar c ON c.month = s.month
+    WHERE p.brand_name = 'Cardiozen' AND c.year_quarter = '2026-Q2';
+- id: E20
+  difficulty: easy
+  question: What is the Glucovia quota for the Atlanta territory in 2026-Q4?
+  sql: |
+    SELECT q.target_net_sales FROM fact_quota q
+    JOIN dim_product p ON p.product_id = q.product_id
+    JOIN dim_territory t ON t.territory_id = q.territory_id
+    WHERE p.brand_name = 'Glucovia' AND t.territory_name = 'Atlanta' AND q.year_quarter = '2026-Q4';
+
+# ----------------------------------------------------------------------------- medium
+- id: M01
+  difficulty: medium
+  question: What were Glucovia net sales by region last quarter?
+  sql: |
+    SELECT g.region_name, SUM(s.net_sales) FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    JOIN dim_territory t ON t.territory_id = s.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    JOIN dim_calendar c ON c.month = s.month
+    WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3'
+    GROUP BY g.region_name;
+- id: M02
+  difficulty: medium
+  question: Show monthly Cardiozen TRx for 2026 so far.
+  sql: |
+    SELECT r.month, SUM(r.trx) FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+    WHERE p.brand_name = 'Cardiozen' AND r.month BETWEEN '2026-01-01' AND '2026-09-01'
+    GROUP BY r.month;
+- id: M03
+  difficulty: medium
+  question: What were the top 5 territories by Pulmova TRx in 2025?
+  sql: |
+    SELECT t.territory_name FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_territory t ON t.territory_id = h.territory_id
+    WHERE p.brand_name = 'Pulmova' AND r.month BETWEEN '2025-01-01' AND '2025-12-01'
+    GROUP BY t.territory_name ORDER BY SUM(r.trx) DESC LIMIT 5;
+- id: M04
+  difficulty: medium
+  question: What were net sales by brand in 2025, highest first?
+  sql: |
+    SELECT p.brand_name, SUM(s.net_sales) AS ns FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    WHERE s.month BETWEEN '2025-01-01' AND '2025-12-01'
+    GROUP BY p.brand_name ORDER BY ns DESC;
+- id: M05
+  difficulty: medium
+  question: How many calls did each sales team make last quarter?
+  sql: |
+    SELECT rp.sales_team, COUNT(*) FROM fact_call fc JOIN dim_rep rp ON rp.rep_id = fc.rep_id
+    WHERE fc.call_date BETWEEN '2026-07-01' AND '2026-09-30'
+    GROUP BY rp.sales_team;
+- id: M06
+  difficulty: medium
+  question: How many HCPs are there in each specialty?
+  sql: SELECT specialty, COUNT(*) FROM dim_hcp GROUP BY specialty;
+- id: M07
+  difficulty: medium
+  question: What percentage of Cardiozen TRx came from each payer channel in 2026-Q3?
+  sql: |
+    SELECT py.channel, 100.0 * SUM(r.trx) / SUM(SUM(r.trx)) OVER () FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_payer py ON py.payer_id = r.payer_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Cardiozen' AND c.year_quarter = '2026-Q3'
+    GROUP BY py.channel;
+- id: M08
+  difficulty: medium
+  question: Which payers list Glucovia as non-preferred or do not cover it?
+  sql: |
+    SELECT py.payer_name FROM formulary f
+    JOIN dim_payer py ON py.payer_id = f.payer_id
+    JOIN dim_product p ON p.product_id = f.product_id
+    WHERE p.brand_name = 'Glucovia' AND f.coverage_status IN ('Non-Preferred', 'Not Covered');
+- id: M09
+  difficulty: medium
+  question: What was total TRx by therapeutic area in 2025?
+  sql: |
+    SELECT p.therapeutic_area, SUM(r.trx) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    WHERE r.month BETWEEN '2025-01-01' AND '2025-12-01'
+    GROUP BY p.therapeutic_area;
+- id: M10
+  difficulty: medium
+  question: What is the call frequency per reached HCP for Neurolin this year?
+  sql: |
+    SELECT 1.0 * COUNT(*) / COUNT(DISTINCT fc.hcp_id) FROM fact_call fc
+    JOIN dim_product p ON p.product_id = fc.product_id
+    WHERE p.brand_name = 'Neurolin' AND fc.call_date BETWEEN '2026-01-01' AND '2026-09-30';
+- id: M11
+  difficulty: medium
+  question: Which rep made the most calls in 2025?
+  sql: |
+    SELECT rp.first_name, rp.last_name FROM fact_call fc JOIN dim_rep rp ON rp.rep_id = fc.rep_id
+    WHERE fc.call_date BETWEEN '2025-01-01' AND '2025-12-31'
+    GROUP BY rp.rep_id ORDER BY COUNT(*) DESC LIMIT 1;
+  alt_sql:
+    - |
+      SELECT rp.first_name || ' ' || rp.last_name FROM fact_call fc
+      JOIN dim_rep rp ON rp.rep_id = fc.rep_id
+      WHERE fc.call_date BETWEEN '2025-01-01' AND '2025-12-31'
+      GROUP BY rp.rep_id ORDER BY COUNT(*) DESC LIMIT 1;
+    - |
+      SELECT rp.rep_id FROM fact_call fc JOIN dim_rep rp ON rp.rep_id = fc.rep_id
+      WHERE fc.call_date BETWEEN '2025-01-01' AND '2025-12-31'
+      GROUP BY rp.rep_id ORDER BY COUNT(*) DESC LIMIT 1;
+- id: M12
+  difficulty: medium
+  question: How many distinct HCPs prescribed Oncorex in 2026-Q3?
+  sql: |
+    SELECT COUNT(DISTINCT r.hcp_id) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Oncorex' AND c.year_quarter = '2026-Q3';
+- id: M13
+  difficulty: medium
+  question: What is the gross-to-net discount for each of our brands year to date?
+  sql: |
+    SELECT p.brand_name, 100.0 * (1 - SUM(s.net_sales) / SUM(s.gross_sales)) FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    WHERE s.month BETWEEN '2026-01-01' AND '2026-09-01'
+    GROUP BY p.brand_name;
+- id: M14
+  difficulty: medium
+  question: What were Neurolin net sales by quarter in 2025?
+  sql: |
+    SELECT c.year_quarter, SUM(s.net_sales) FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    JOIN dim_calendar c ON c.month = s.month
+    WHERE p.brand_name = 'Neurolin' AND c.year = 2025
+    GROUP BY c.year_quarter;
+- id: M15
+  difficulty: medium
+  question: Break down Glucovia TRx by prescriber specialty for last quarter.
+  sql: |
+    SELECT h.specialty, SUM(r.trx) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3'
+    GROUP BY h.specialty;
+- id: M16
+  difficulty: medium
+  question: How many calls has the Primary Care team made by channel so far in 2026?
+  sql: |
+    SELECT fc.channel, COUNT(*) FROM fact_call fc JOIN dim_rep rp ON rp.rep_id = fc.rep_id
+    WHERE rp.sales_team = 'Primary Care' AND fc.call_date BETWEEN '2026-01-01' AND '2026-09-30'
+    GROUP BY fc.channel;
+- id: M17
+  difficulty: medium
+  question: Which region had the highest Cardiozen net sales in 2025?
+  sql: |
+    SELECT g.region_name FROM fact_sales s
+    JOIN dim_product p ON p.product_id = s.product_id
+    JOIN dim_territory t ON t.territory_id = s.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    WHERE p.brand_name = 'Cardiozen' AND s.month BETWEEN '2025-01-01' AND '2025-12-01'
+    GROUP BY g.region_name ORDER BY SUM(s.net_sales) DESC LIMIT 1;
+- id: M18
+  difficulty: medium
+  question: How many Thrombex prescriptions were written in the Southeast in 2026-Q2?
+  sql: |
+    SELECT SUM(r.trx) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_territory t ON t.territory_id = h.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Thrombex' AND g.region_name = 'Southeast' AND c.year_quarter = '2026-Q2';
+- id: M19
+  difficulty: medium
+  question: Which three payers had the most Glucovia TRx last quarter?
+  sql: |
+    SELECT py.payer_name FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_payer py ON py.payer_id = r.payer_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3'
+    GROUP BY py.payer_name ORDER BY SUM(r.trx) DESC LIMIT 3;
+- id: M20
+  difficulty: medium
+  question: How many targeted HCPs received no calls at all in 2026-Q3?
+  sql: |
+    SELECT COUNT(*) FROM dim_hcp h
+    WHERE h.is_target = 1 AND NOT EXISTS (
+      SELECT 1 FROM fact_call fc
+      WHERE fc.hcp_id = h.hcp_id AND fc.call_date BETWEEN '2026-07-01' AND '2026-09-30');
+- id: M21
+  difficulty: medium
+  question: What is the total Oncorex quota across all territories for 2026-Q3?
+  sql: |
+    SELECT SUM(q.target_net_sales) FROM fact_quota q
+    JOIN dim_product p ON p.product_id = q.product_id
+    WHERE p.brand_name = 'Oncorex' AND q.year_quarter = '2026-Q3';
+- id: M22
+  difficulty: medium
+  question: Which month of 2025 had the highest Pulmova TRx?
+  sql: |
+    SELECT r.month FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+    WHERE p.brand_name = 'Pulmova' AND r.month BETWEEN '2025-01-01' AND '2025-12-01'
+    GROUP BY r.month ORDER BY SUM(r.trx) DESC LIMIT 1;
+  alt_sql:
+    - |
+      SELECT c.month_name FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+      JOIN dim_calendar c ON c.month = r.month
+      WHERE p.brand_name = 'Pulmova' AND c.year = 2025
+      GROUP BY c.month_name ORDER BY SUM(r.trx) DESC LIMIT 1;
+    - |
+      SELECT substr(r.month, 1, 7) FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+      WHERE p.brand_name = 'Pulmova' AND r.month BETWEEN '2025-01-01' AND '2025-12-01'
+      GROUP BY r.month ORDER BY SUM(r.trx) DESC LIMIT 1;
+- id: M23
+  difficulty: medium
+  question: What percentage of Oncorex TRx were new prescriptions in 2026-Q3?
+  sql: |
+    SELECT 100.0 * SUM(r.nrx) / SUM(r.trx) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Oncorex' AND c.year_quarter = '2026-Q3';
+- id: M24
+  difficulty: medium
+  question: How many reps work in each region?
+  sql: |
+    SELECT g.region_name, COUNT(*) FROM dim_rep rp
+    JOIN dim_territory t ON t.territory_id = rp.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    GROUP BY g.region_name;
+- id: M25
+  difficulty: medium
+  question: What are total year-to-date net sales in the Northeast for all our brands?
+  sql: |
+    SELECT SUM(s.net_sales) FROM fact_sales s
+    JOIN dim_territory t ON t.territory_id = s.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    WHERE g.region_name = 'Northeast' AND s.month BETWEEN '2026-01-01' AND '2026-09-01';
+
+# ------------------------------------------------------------------------------- hard
+- id: H01
+  difficulty: hard
+  question: What was Glucovia's market share of diabetes TRx last quarter?
+  sql: |
+    SELECT 100.0 * SUM(CASE WHEN p.brand_name = 'Glucovia' THEN r.trx ELSE 0 END) / SUM(r.trx)
+    FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.therapeutic_area = 'Diabetes' AND c.year_quarter = '2026-Q3';
+- id: H02
+  difficulty: hard
+  question: What was Glucovia's share of the diabetes market in each region in 2026-Q3?
+  sql: |
+    SELECT g.region_name,
+           100.0 * SUM(CASE WHEN p.brand_name = 'Glucovia' THEN r.trx ELSE 0 END) / SUM(r.trx)
+    FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_territory t ON t.territory_id = h.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.therapeutic_area = 'Diabetes' AND c.year_quarter = '2026-Q3'
+    GROUP BY g.region_name;
+- id: H03
+  difficulty: hard
+  question: What was the quarter-over-quarter growth in Glucovia net sales last quarter?
+  sql: |
+    WITH q AS (
+      SELECT c.year_quarter, SUM(s.net_sales) AS ns FROM fact_sales s
+      JOIN dim_product p ON p.product_id = s.product_id
+      JOIN dim_calendar c ON c.month = s.month
+      WHERE p.brand_name = 'Glucovia' AND c.year_quarter IN ('2026-Q2', '2026-Q3')
+      GROUP BY c.year_quarter)
+    SELECT 100.0 * (cur.ns - prev.ns) / prev.ns FROM q cur
+    JOIN q prev ON cur.year_quarter = '2026-Q3' AND prev.year_quarter = '2026-Q2';
+- id: H04
+  difficulty: hard
+  question: What was the year-over-year growth in Cardiozen TRx by region for 2026-Q3 versus 2025-Q3?
+  sql: |
+    SELECT g.region_name,
+           100.0 * (SUM(CASE WHEN c.year_quarter = '2026-Q3' THEN r.trx ELSE 0 END)
+                  - SUM(CASE WHEN c.year_quarter = '2025-Q3' THEN r.trx ELSE 0 END))
+                 / SUM(CASE WHEN c.year_quarter = '2025-Q3' THEN r.trx ELSE 0 END)
+    FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_territory t ON t.territory_id = h.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Cardiozen' AND c.year_quarter IN ('2025-Q3', '2026-Q3')
+    GROUP BY g.region_name;
+- id: H05
+  difficulty: hard
+  question: Which 5 territories had the lowest Glucovia quota attainment in 2026-Q3?
+  sql: |
+    WITH a AS (
+      SELECT s.territory_id, SUM(s.net_sales) AS ns FROM fact_sales s
+      JOIN dim_product p ON p.product_id = s.product_id
+      JOIN dim_calendar c ON c.month = s.month
+      WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3'
+      GROUP BY s.territory_id)
+    SELECT t.territory_name FROM fact_quota q
+    JOIN dim_product p ON p.product_id = q.product_id
+    JOIN a ON a.territory_id = q.territory_id
+    JOIN dim_territory t ON t.territory_id = q.territory_id
+    WHERE p.brand_name = 'Glucovia' AND q.year_quarter = '2026-Q3'
+    ORDER BY a.ns / q.target_net_sales ASC LIMIT 5;
+- id: H06
+  difficulty: hard
+  question: Which territories achieved at least 100% of their Cardiozen quota in 2026-Q2?
+  sql: |
+    WITH a AS (
+      SELECT s.territory_id, SUM(s.net_sales) AS ns FROM fact_sales s
+      JOIN dim_product p ON p.product_id = s.product_id
+      JOIN dim_calendar c ON c.month = s.month
+      WHERE p.brand_name = 'Cardiozen' AND c.year_quarter = '2026-Q2'
+      GROUP BY s.territory_id)
+    SELECT t.territory_name FROM fact_quota q
+    JOIN dim_product p ON p.product_id = q.product_id
+    JOIN a ON a.territory_id = q.territory_id
+    JOIN dim_territory t ON t.territory_id = q.territory_id
+    WHERE p.brand_name = 'Cardiozen' AND q.year_quarter = '2026-Q2'
+      AND a.ns >= q.target_net_sales;
+- id: H07
+  difficulty: hard
+  question: What was quota attainment for each of our brands in the first half of 2026?
+  sql: |
+    WITH a AS (
+      SELECT s.product_id, SUM(s.net_sales) AS ns FROM fact_sales s
+      WHERE s.month BETWEEN '2026-01-01' AND '2026-06-01' GROUP BY s.product_id),
+    t AS (
+      SELECT q.product_id, SUM(q.target_net_sales) AS tgt FROM fact_quota q
+      WHERE q.year_quarter IN ('2026-Q1', '2026-Q2') GROUP BY q.product_id)
+    SELECT p.brand_name, 100.0 * a.ns / t.tgt FROM a
+    JOIN t ON t.product_id = a.product_id
+    JOIN dim_product p ON p.product_id = a.product_id;
+- id: H08
+  difficulty: hard
+  question: What is our combined market share in each therapeutic area year to date?
+  sql: |
+    SELECT p.therapeutic_area,
+           100.0 * SUM(CASE WHEN p.is_own_brand = 1 THEN r.trx ELSE 0 END) / SUM(r.trx)
+    FROM fact_rx r JOIN dim_product p ON p.product_id = r.product_id
+    WHERE r.month BETWEEN '2026-01-01' AND '2026-09-01'
+    GROUP BY p.therapeutic_area;
+- id: H09
+  difficulty: hard
+  question: Who were the top 10 Glucovia prescribers last quarter among HCPs not on the call plan? Give their NPI and TRx.
+  sql: |
+    SELECT h.npi, SUM(r.trx) AS trx FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_calendar c ON c.month = r.month
+    WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3' AND h.is_target = 0
+    GROUP BY h.npi ORDER BY trx DESC LIMIT 10;
+- id: H10
+  difficulty: hard
+  question: Show monthly Oncorex TRx since launch with a running cumulative total.
+  sql: |
+    SELECT r.month, SUM(r.trx), SUM(SUM(r.trx)) OVER (ORDER BY r.month) FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    WHERE p.brand_name = 'Oncorex'
+    GROUP BY r.month;
+- id: H11
+  difficulty: hard
+  question: Rank regions by Neurolin TRx growth from 2024 to 2025.
+  sql: |
+    SELECT g.region_name,
+           100.0 * (SUM(CASE WHEN r.month LIKE '2025-%' THEN r.trx ELSE 0 END)
+                  - SUM(CASE WHEN r.month LIKE '2024-%' THEN r.trx ELSE 0 END))
+                 / SUM(CASE WHEN r.month LIKE '2024-%' THEN r.trx ELSE 0 END) AS growth
+    FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+    JOIN dim_territory t ON t.territory_id = h.territory_id
+    JOIN dim_region g ON g.region_id = t.region_id
+    WHERE p.brand_name = 'Neurolin' AND r.month BETWEEN '2024-01-01' AND '2025-12-01'
+    GROUP BY g.region_name ORDER BY growth DESC;
+- id: H12
+  difficulty: hard
+  question: >-
+    Last quarter, what was the average Glucovia TRx per prescribing HCP for HCPs who received at
+    least one Glucovia call versus those who received none?
+  sql: |
+    WITH called AS (
+      SELECT DISTINCT fc.hcp_id FROM fact_call fc
+      JOIN dim_product p ON p.product_id = fc.product_id
+      WHERE p.brand_name = 'Glucovia' AND fc.call_date BETWEEN '2026-07-01' AND '2026-09-30'),
+    rx AS (
+      SELECT r.hcp_id, SUM(r.trx) AS trx FROM fact_rx r
+      JOIN dim_product p ON p.product_id = r.product_id
+      JOIN dim_calendar c ON c.month = r.month
+      WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3'
+      GROUP BY r.hcp_id)
+    SELECT AVG(rx.trx) FROM rx LEFT JOIN called ON called.hcp_id = rx.hcp_id
+    GROUP BY called.hcp_id IS NOT NULL;
+- id: H13
+  difficulty: hard
+  question: In which payer channel does Pulmova have its highest share of respiratory TRx this year?
+  sql: |
+    SELECT py.channel FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_payer py ON py.payer_id = r.payer_id
+    WHERE p.therapeutic_area = 'Respiratory' AND r.month BETWEEN '2026-01-01' AND '2026-09-01'
+    GROUP BY py.channel
+    ORDER BY 1.0 * SUM(CASE WHEN p.brand_name = 'Pulmova' THEN r.trx ELSE 0 END) / SUM(r.trx) DESC
+    LIMIT 1;
+- id: H14
+  difficulty: hard
+  question: What percentage of Glucovia TRx last quarter came from plans that require prior authorization for Glucovia?
+  sql: |
+    SELECT 100.0 * SUM(CASE WHEN f.prior_auth = 1 THEN r.trx ELSE 0 END) / SUM(r.trx)
+    FROM fact_rx r
+    JOIN dim_product p ON p.product_id = r.product_id
+    JOIN dim_calendar c ON c.month = r.month
+    LEFT JOIN formulary f ON f.payer_id = r.payer_id AND f.product_id = r.product_id
+    WHERE p.brand_name = 'Glucovia' AND c.year_quarter = '2026-Q3';
+- id: H15
+  difficulty: hard
+  question: What share of calls were in-person in each year?
+  sql: |
+    SELECT substr(call_date, 1, 4), 100.0 * SUM(channel = 'In-Person') / COUNT(*)
+    FROM fact_call GROUP BY substr(call_date, 1, 4);
+- id: H16
+  difficulty: hard
+  question: >-
+    Which brand gained the most market share (in percentage points, within its therapeutic area)
+    between 2025-Q3 and 2026-Q3?
+  sql: |
+    WITH br AS (
+      SELECT c.year_quarter, p.brand_name, p.therapeutic_area, SUM(r.trx) AS trx FROM fact_rx r
+      JOIN dim_product p ON p.product_id = r.product_id
+      JOIN dim_calendar c ON c.month = r.month
+      WHERE c.year_quarter IN ('2025-Q3', '2026-Q3')
+      GROUP BY c.year_quarter, p.brand_name, p.therapeutic_area),
+    sh AS (
+      SELECT br.brand_name, br.year_quarter,
+             100.0 * br.trx / SUM(br.trx) OVER (PARTITION BY br.year_quarter, br.therapeutic_area)
+               AS share
+      FROM br)
+    SELECT cur.brand_name FROM sh cur
+    JOIN sh prev ON prev.brand_name = cur.brand_name AND prev.year_quarter = '2025-Q3'
+    WHERE cur.year_quarter = '2026-Q3'
+    ORDER BY cur.share - prev.share DESC LIMIT 1;
+- id: H17
+  difficulty: hard
+  question: For each region, which of our brands had the highest net sales last quarter?
+  sql: |
+    WITH x AS (
+      SELECT g.region_name, p.brand_name,
+             RANK() OVER (PARTITION BY g.region_name ORDER BY SUM(s.net_sales) DESC) AS rk
+      FROM fact_sales s
+      JOIN dim_product p ON p.product_id = s.product_id
+      JOIN dim_territory t ON t.territory_id = s.territory_id
+      JOIN dim_region g ON g.region_id = t.region_id
+      JOIN dim_calendar c ON c.month = s.month
+      WHERE c.year_quarter = '2026-Q3'
+      GROUP BY g.region_name, p.brand_name)
+    SELECT region_name, brand_name FROM x WHERE rk = 1;
+- id: H18
+  difficulty: hard
+  question: What was the month-over-month dollar change in total net sales for each month from April to September 2026?
+  sql: |
+    WITH m AS (SELECT month, SUM(net_sales) AS ns FROM fact_sales GROUP BY month),
+    d AS (SELECT month, ns - LAG(ns) OVER (ORDER BY month) AS mom FROM m)
+    SELECT mom FROM d WHERE month BETWEEN '2026-04-01' AND '2026-09-01';
+- id: H19
+  difficulty: hard
+  question: >-
+    What percentage of targeted cardiologists in deciles 8-10 received at least three Cardiozen
+    calls last quarter?
+  sql: |
+    WITH c AS (
+      SELECT fc.hcp_id FROM fact_call fc
+      JOIN dim_hcp h ON h.hcp_id = fc.hcp_id
+      JOIN dim_product p ON p.product_id = fc.product_id
+      WHERE h.specialty = 'Cardiology' AND h.decile >= 8 AND h.is_target = 1
+        AND p.brand_name = 'Cardiozen' AND fc.call_date BETWEEN '2026-07-01' AND '2026-09-30'
+      GROUP BY fc.hcp_id HAVING COUNT(*) >= 3)
+    SELECT 100.0 * (SELECT COUNT(*) FROM c) / COUNT(*) FROM dim_hcp
+    WHERE specialty = 'Cardiology' AND decile >= 8 AND is_target = 1;
+- id: H20
+  difficulty: hard
+  question: In how many territories did Cardiozen out-prescribe Thrombex (by TRx) last quarter?
+  sql: |
+    WITH x AS (
+      SELECT h.territory_id,
+             SUM(CASE WHEN p.brand_name = 'Cardiozen' THEN r.trx ELSE 0 END) AS cz,
+             SUM(CASE WHEN p.brand_name = 'Thrombex' THEN r.trx ELSE 0 END) AS tb
+      FROM fact_rx r
+      JOIN dim_product p ON p.product_id = r.product_id
+      JOIN dim_hcp h ON h.hcp_id = r.hcp_id
+      JOIN dim_calendar c ON c.month = r.month
+      WHERE c.year_quarter = '2026-Q3' AND p.brand_name IN ('Cardiozen', 'Thrombex')
+      GROUP BY h.territory_id)
+    SELECT COUNT(*) FROM x WHERE cz > tb;
+
+# ----------------------------------------------------------------------- unanswerable
+- id: U01
+  difficulty: unanswerable
+  question: How much did we spend on TV advertising for Glucovia last quarter?
+  reason: no marketing spend data
+- id: U02
+  difficulty: unanswerable
+  question: How many adverse events were reported for Cardiozen in 2025?
+  reason: no safety / adverse event data
+- id: U03
+  difficulty: unanswerable
+  question: What is the average age of patients taking Oncorex?
+  reason: no patient-level data
+- id: U04
+  difficulty: unanswerable
+  question: What was Thrombex's net revenue last quarter?
+  reason: competitor brands have no sales data
+- id: U05
+  difficulty: unanswerable
+  question: What is the patient copay for Pulmova on UnityCare plans?
+  reason: formulary has coverage status and prior auth only, no copay
+- id: U06
+  difficulty: unanswerable
+  question: What were Glucovia sales in Canada in 2025?
+  reason: US data only
+- id: U07
+  difficulty: unanswerable
+  question: What feedback did doctors give about Neurolin during rep calls last month?
+  reason: no call notes or feedback text
+- id: U08
+  difficulty: unanswerable
+  question: Which hospitals purchased the most Oncorex this year?
+  reason: no hospital or account-level purchase data
+- id: U09
+  difficulty: unanswerable
+  question: How much Cardiozen inventory are wholesalers currently holding?
+  reason: no channel inventory data
+- id: U10
+  difficulty: unanswerable
+  question: How many patients switched from Insulix to Glucovia in 2026?
+  reason: no patient-level longitudinal data
+- id: U11
+  difficulty: unanswerable
+  question: What was the open rate of rep emails last quarter?
+  reason: email engagement is not tracked, only that an email call occurred
+- id: U12
+  difficulty: unanswerable
+  question: What is the profit margin on Neurolin?
+  reason: no cost data
+- id: U13
+  difficulty: unanswerable
+  question: Which HCPs attended our speaker programs in 2025?
+  reason: no speaker program / event data
+- id: U14
+  difficulty: unanswerable
+  question: What were Pulmova TRx in the first week of March 2026?
+  reason: prescriptions are monthly; no weekly granularity
+- id: U15
+  difficulty: unanswerable
+  question: What is the clinical trial success rate of our oncology pipeline?
+  reason: no R&D or clinical trial data

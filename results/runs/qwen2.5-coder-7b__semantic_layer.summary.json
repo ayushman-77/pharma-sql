@@ -1,0 +1,23 @@
+{
+  "run": "qwen2.5-coder-7b__semantic_layer",
+  "n": 80,
+  "execution_accuracy": 61.5,
+  "accuracy_by_difficulty": {
+    "easy": 100.0,
+    "medium": 64.0,
+    "hard": 20.0
+  },
+  "abstention_accuracy": 53.3,
+  "overall_accuracy": 60.0,
+  "valid_sql_rate": 73.8,
+  "schema_hallucination_rate": 20.8,
+  "answer_hallucination_rate": 26.7,
+  "false_abstention_rate": 0.0,
+  "silent_wrong_rate": 15.4,
+  "repair_rescues": 0,
+  "avg_attempts": 1,
+  "latency_p50_s": 4.09,
+  "latency_p95_s": 7.93,
+  "avg_tokens": 2941,
+  "infra_errors": 0
+}

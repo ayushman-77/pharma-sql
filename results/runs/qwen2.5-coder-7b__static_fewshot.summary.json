@@ -1,0 +1,23 @@
+{
+  "run": "qwen2.5-coder-7b__static_fewshot",
+  "n": 80,
+  "execution_accuracy": 61.5,
+  "accuracy_by_difficulty": {
+    "easy": 90.0,
+    "medium": 64.0,
+    "hard": 30.0
+  },
+  "abstention_accuracy": 66.7,
+  "overall_accuracy": 62.5,
+  "valid_sql_rate": 83.1,
+  "schema_hallucination_rate": 14.3,
+  "answer_hallucination_rate": 26.7,
+  "false_abstention_rate": 0.0,
+  "silent_wrong_rate": 24.1,
+  "repair_rescues": 0,
+  "avg_attempts": 1,
+  "latency_p50_s": 4.2,
+  "latency_p95_s": 8.24,
+  "avg_tokens": 3373,
+  "infra_errors": 0
+}

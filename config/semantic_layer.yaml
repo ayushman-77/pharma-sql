@@ -1,0 +1,90 @@
+# Semantic layer: the business meaning of the warehouse.
+# The agent injects this into its prompt so that words like "revenue", "last quarter" or
+# "high-value doctors" resolve to one agreed definition instead of the model's guess.
+
+company: Zephyr Pharma (fictional). "Our brands" = dim_product.is_own_brand = 1.
+as_of_date: "2026-10-01"
+data_coverage: >-
+  Monthly facts from 2024-01 through 2026-09 (fact_rx, fact_sales). Calls are daily
+  (fact_call.call_date). Quotas exist per quarter, including the 2026-Q4 plan.
+
+time_conventions:
+  - "Months are stored as the first day of the month, text 'YYYY-MM-DD' (e.g. '2026-07-01')."
+  - "Quarters are calendar quarters. Use dim_calendar.year_quarter (e.g. '2026-Q3') by joining dim_calendar ON month."
+  - "'Last quarter' / 'most recent quarter' = 2026-Q3. 'Previous quarter' of 2026-Q3 = 2026-Q2."
+  - "'This year' / 'YTD' = 2026-01 through 2026-09. 'Last year' = calendar 2025."
+  - "'Last month' / 'latest month' = 2026-09-01."
+  - "For fact_call, derive the month with substr(call_date, 1, 7) || '-01' or compare call_date ranges."
+
+tables:
+  dim_region: "5 US sales regions."
+  dim_territory: "25 sales territories, each in one region; territory_name is a city."
+  dim_product: "11 brands across 5 therapeutic areas; ours and competitors'."
+  dim_hcp: "Healthcare professionals (doctors / prescribers / physicians)."
+  dim_rep: "Field sales representatives; two per territory (Primary Care team and Specialty team)."
+  dim_payer: "Insurance plans; channel is Commercial, Medicare, Medicaid or Cash."
+  dim_calendar: "One row per month in the data; maps month to year, quarter and year_quarter."
+  formulary: "Current coverage of each product on each payer's formulary (Cash has no formulary)."
+  fact_rx: "Monthly prescriptions by HCP x product x payer (IQVIA-style). Covers ALL brands incl. competitors."
+  fact_sales: "Monthly ex-factory sales by territory x product. ONLY our own brands have sales data."
+  fact_call: "Rep interactions (calls/details) with HCPs; product_id is the brand discussed."
+  fact_quota: "Quarterly net-sales targets by territory x own brand."
+
+columns:
+  dim_product.therapeutic_area: "Cardiology | Diabetes | Respiratory | Oncology | Neurology"
+  dim_product.is_own_brand: "1 = Zephyr Pharma brand, 0 = competitor"
+  dim_product.wac_price: "Wholesale acquisition (list) price per prescription fill, USD"
+  dim_product.launch_date: "US launch date 'YYYY-MM-DD'"
+  dim_hcp.specialty: "Cardiology | Endocrinology | Pulmonology | Oncology | Neurology | Internal Medicine | Family Medicine"
+  dim_hcp.decile: "Prescribing-potential decile 1-10; 10 = highest-value prescribers"
+  dim_hcp.is_target: "1 = on the call plan (targeted by reps)"
+  dim_hcp.npi: "National Provider Identifier (10 digits)"
+  dim_rep.sales_team: "Primary Care (Cardiozen, Glucovia, Pulmova) | Specialty (Oncorex, Neurolin)"
+  dim_payer.channel: "Commercial | Medicare | Medicaid | Cash"
+  formulary.coverage_status: "Preferred | Non-Preferred | Not Covered"
+  formulary.prior_auth: "1 = prior authorization required"
+  fact_rx.trx: "Total prescriptions (new + refills)"
+  fact_rx.nrx: "New prescriptions (subset of TRx)"
+  fact_sales.units: "Units (fills) shipped"
+  fact_sales.gross_sales: "Gross sales at WAC, USD"
+  fact_sales.net_sales: "Net sales after rebates/discounts (gross-to-net), USD"
+  fact_call.channel: "In-Person | Virtual | Email"
+  fact_quota.year_quarter: "e.g. '2026-Q3'"
+  fact_quota.target_net_sales: "Quarterly net-sales target, USD"
+
+metrics:
+  revenue: "'Revenue' or 'sales' (in dollars) means SUM(fact_sales.net_sales) unless 'gross' is stated."
+  gross_revenue: "SUM(fact_sales.gross_sales)."
+  trx: "SUM(fact_rx.trx). 'Prescriptions', 'scripts', 'Rx volume' mean TRx unless 'new' is stated."
+  nrx: "SUM(fact_rx.nrx). 'New prescriptions', 'new patient starts' mean NRx."
+  market_share: "Brand TRx / TRx of ALL brands in the same therapeutic_area under the same filters, x100 as a percentage."
+  quota_attainment: "SUM(net_sales) / SUM(target_net_sales) x100 for the same territory(ies), product(s) and quarter(s)."
+  reach: "COUNT(DISTINCT fact_call.hcp_id) reached by calls."
+  frequency: "COUNT(*) calls / COUNT(DISTINCT hcp_id) called."
+  gross_to_net: "1 - SUM(net_sales) / SUM(gross_sales), as a percentage."
+  growth: "(current - prior) / prior x100. QoQ = vs previous quarter, YoY = vs same period last year."
+
+join_paths:
+  "prescriptions by geography": "fact_rx r JOIN dim_hcp h ON h.hcp_id = r.hcp_id JOIN dim_territory t ON t.territory_id = h.territory_id JOIN dim_region g ON g.region_id = t.region_id"
+  "sales / quota by geography": "fact_sales s (or fact_quota q) JOIN dim_territory t ON t.territory_id = s.territory_id JOIN dim_region g ON g.region_id = t.region_id"
+  "calls by rep / team": "fact_call fc JOIN dim_rep rp ON rp.rep_id = fc.rep_id"
+  "anything by quarter": "JOIN dim_calendar c ON c.month = <fact>.month, then filter c.year_quarter"
+  "quota attainment": "aggregate net sales per territory/product/quarter in a CTE first, then join to fact_quota on territory_id, product_id and year_quarter (never join row-level sales to quota)"
+
+synonyms:
+  "doctors, physicians, prescribers, HCPs": "dim_hcp"
+  "high-value / top-decile prescribers": "dim_hcp.decile >= 8"
+  "targeted HCPs": "dim_hcp.is_target = 1"
+  "reps, sales reps, field force": "dim_rep"
+  "details, visits, interactions": "fact_call rows"
+  "plans, insurers, payers": "dim_payer"
+
+rules:
+  - "Write a single read-only SQLite SELECT (CTEs allowed). No other statements."
+  - "Match text values exactly as listed (case-sensitive), e.g. region_name = 'Northeast'."
+  - "Answer only from the tables and columns above. If a question needs a metric, entity, attribute or granularity that has no column here, it is NOT answerable: do not approximate it with a different metric or a coarser period."
+  - "Prescriptions are aggregated per HCP per month: there is no patient-level data, and nothing finer than monthly for prescriptions and sales."
+  - "Competitor brands have NO dollar sales; only fact_rx (prescriptions) covers them."
+  - "Geography is US only (5 regions, 25 territories)."
+  - "SQLite integer division truncates (3/4 = 0): for ratios write 100.0 * SUM(a) / SUM(b) or 1.0 * a / b."
+  - "Round dollar amounts to 2 decimals and percentages to 1 decimal."

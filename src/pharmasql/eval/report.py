@@ -1,0 +1,138 @@
+"""Aggregate eval summaries into results/REPORT.md plus two PNG charts."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+from pharmasql.agent.schemas import ABLATIONS  # noqa: E402
+
+# Validated reference palette (light mode): categorical slots in fixed order.
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+SURFACE, INK, INK_2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
+MAIN_MODEL = "qwen2.5-coder-7b"
+
+ABLATION_LABELS = {
+    "zero_shot": "Zero-shot (DDL only)",
+    "semantic_layer": "+ Semantic layer",
+    "static_fewshot": "+ Static few-shot",
+    "dynamic_fewshot": "+ Dynamic few-shot (RAG)",
+    "full": "+ Validate & self-correct",
+}
+
+
+def _style(ax) -> None:
+    ax.set_facecolor(SURFACE)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(GRID)
+    ax.tick_params(colors=INK_2, length=0)
+    ax.xaxis.grid(True, color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+
+
+def _ablation_chart(rows: list[dict], path: Path) -> None:
+    labels = [ABLATION_LABELS[r["config"]] for r in rows][::-1]
+    values = [r["overall_accuracy"] for r in rows][::-1]
+    fig, ax = plt.subplots(figsize=(8, 3.4), facecolor=SURFACE)
+    _style(ax)
+    bars = ax.barh(labels, values, color=SERIES[0], height=0.62, edgecolor=SURFACE, linewidth=2)
+    for bar, v in zip(bars, values, strict=True):
+        ax.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2, f"{v:.1f}%",
+                va="center", color=INK, fontsize=10)
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("Overall accuracy on 80 questions (%)", color=INK_2)
+    ax.set_title(f"Ablation: each component's contribution ({MAIN_MODEL})", color=INK,
+                 loc="left", fontsize=12)
+    ax.tick_params(axis="y", colors=INK)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def _model_chart(rows: list[dict], path: Path) -> None:
+    groups = ["easy", "medium", "hard", "unanswerable"]
+    rows = rows[: len(SERIES)]
+    fig, ax = plt.subplots(figsize=(8, 3.6), facecolor=SURFACE)
+    _style(ax)
+    ax.xaxis.grid(False)
+    ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+    width = 0.8 / len(rows)
+    for i, r in enumerate(rows):
+        vals = [r["accuracy_by_difficulty"][g] for g in groups[:3]] + [r["abstention_accuracy"]]
+        xs = [g + (i - (len(rows) - 1) / 2) * width for g in range(len(groups))]
+        ax.bar(xs, vals, width=width, color=SERIES[i], edgecolor=SURFACE, linewidth=2,
+               label=r["model"])
+    ax.set_xticks(range(len(groups)), [g.capitalize() for g in groups], color=INK)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("Accuracy (%)", color=INK_2)
+    ax.set_title("Full agent by model and question difficulty", color=INK, loc="left",
+                 fontsize=12)
+    ax.legend(frameon=False, labelcolor=INK, ncols=len(rows), loc="upper right",
+              bbox_to_anchor=(1, 1.13))
+    fig.tight_layout()
+    fig.savefig(path, dpi=160, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def _fmt(v) -> str:
+    return "–" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
+
+
+def build_report(runs_dir: Path, out_dir: Path) -> Path:
+    summaries = []
+    for p in sorted(runs_dir.glob("*.summary.json")):
+        s = json.loads(p.read_text())
+        s["model"], s["config"] = s["run"].split("__")
+        summaries.append(s)
+
+    ablation = sorted((s for s in summaries if s["model"] == MAIN_MODEL),
+                      key=lambda s: list(ABLATIONS).index(s["config"]))
+    models = sorted((s for s in summaries if s["config"] == "full"),
+                    key=lambda s: (s["model"] != MAIN_MODEL, -s["overall_accuracy"]))
+
+    cols = [("Exec. acc.", "execution_accuracy"), ("Easy", None), ("Medium", None),
+            ("Hard", None), ("Abstention", "abstention_accuracy"),
+            ("Overall", "overall_accuracy"), ("Schema halluc.", "schema_hallucination_rate"),
+            ("Answered unanswerable", "answer_hallucination_rate"),
+            ("Silent wrong", "silent_wrong_rate"), ("Avg attempts", "avg_attempts"),
+            ("p50 s", "latency_p50_s")]
+
+    def table(rows: list[dict], key: str, label) -> list[str]:
+        head = f"| {key} | " + " | ".join(c for c, _ in cols) + " |"
+        lines = [head, "|" + "---|" * (len(cols) + 1)]
+        for r in rows:
+            vals = []
+            for c, field in cols:
+                v = r["accuracy_by_difficulty"][c.lower()] if field is None else r[field]
+                vals.append(_fmt(v))
+            lines.append(f"| {label(r)} | " + " | ".join(vals) + " |")
+        return lines
+
+    md = ["# Evaluation report", "",
+          "80 questions (20 easy, 25 medium, 20 hard, 15 unanswerable). All numbers are "
+          "percentages unless noted. Generated by `uv run pharmasql report`.", ""]
+    if ablation:
+        _ablation_chart(ablation, out_dir / "ablation.png")
+        md += [f"## Ablation ({MAIN_MODEL})", "", "![ablation](ablation.png)", ""]
+        md += table(ablation, "Configuration", lambda r: ABLATION_LABELS[r["config"]]) + [""]
+    if models:
+        _model_chart(models, out_dir / "models.png")
+        md += ["## Model comparison (full agent)", "", "![models](models.png)", ""]
+        md += table(models, "Model", lambda r: r["model"]) + [""]
+    md += ["## Metric definitions", "",
+           "- **Exec. acc.**: answerable questions whose result set matches the gold query.",
+           "- **Abstention**: unanswerable questions the agent correctly declined.",
+           "- **Overall**: correct outcome (right answer or right refusal) over all 80.",
+           "- **Schema halluc.**: first-attempt SQL that referenced a table/column that does "
+           "not exist (caught before execution).",
+           "- **Answered unanswerable**: unanswerable questions the agent answered anyway.",
+           "- **Silent wrong**: returned answers that executed fine but were wrong.", ""]
+    path = out_dir / "REPORT.md"
+    path.write_text("\n".join(md), encoding="utf-8")
+    return path
